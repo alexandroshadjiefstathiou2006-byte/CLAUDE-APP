@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 900" width="800" height="900">
+
+<path d="M270 150c30-40 80-60 130-60s100 20 130 60l150 70c30 14 46 40 50 74l40 330c3 24-14 44-38 46l-50 4c-20 2-38-12-42-32l-40-230v360c0 24-20 44-44 44H244c-24 0-44-20-44-44V412l-40 230c-4 20-22 34-42 32l-50-4c-24-2-41-22-38-46l40-330c4-34 20-60 50-74z" fill="#16161A"/>
+<path d="M330 120c20 60 120 60 140 0" stroke="#2A2A30" stroke-width="40" fill="none"/>
+<path d="M360 170l-12 140M440 170l12 140" stroke="#E5E5E5" stroke-width="6"/>
+<rect x="300" y="560" width="200" height="110" rx="14" fill="#1E1E24"/>
+<text x="400" y="440" text-anchor="middle" font-family="Arial Black,Arial" font-size="64" font-weight="900" fill="#FFFFFF" letter-spacing="4">NORTH</text>
+<text x="400" y="490" text-anchor="middle" font-family="Arial" font-size="26" fill="#A1A1AA" letter-spacing="10">EST. 2024</text>
+</svg>

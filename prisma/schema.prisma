@@ -1,0 +1,220 @@
+// Studio — data model.
+// Dev uses SQLite for zero setup. For production change `provider` to "postgresql".
+// JSON-ish columns are stored as String (SQLite compatible); see src/lib/json.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  memberships  Membership[]
+  jobs         GenerationJob[]
+}
+
+/// The brand account. Billing, credits and all content are scoped to a workspace.
+model Workspace {
+  id                   String    @id @default(cuid())
+  name                 String
+  plan                 String    @default("free") // free | starter | growth | pro
+  creditBalance        Int       @default(0)
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?
+  subscriptionStatus   String?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime  @default(now())
+
+  memberships  Membership[]
+  brandKit     BrandKit?
+  products     Product[]
+  creators     Creator[]
+  jobs         GenerationJob[]
+  creatives    Creative[]
+  ledger       CreditLedger[]
+  integrations Integration[]
+}
+
+model Membership {
+  id          String    @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        String    @default("owner") // owner | admin | member
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+}
+
+model BrandKit {
+  id              String    @id @default(cuid())
+  workspaceId     String    @unique
+  brandName       String    @default("")
+  logoUrl         String?
+  colors          String    @default("[]") // string[] hex
+  fonts           String    @default("")
+  toneOfVoice     String    @default("")
+  targetCustomer  String    @default("")
+  categories      String    @default("[]") // string[]
+  preferredStyles String    @default("[]") // preset ids
+  preferredCreatorIds String @default("[]")
+  updatedAt       DateTime  @updatedAt
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Product {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  description String    @default("")
+  category    String    @default("apparel")
+  productUrl  String?
+  imageUrl    String
+  logoUrl     String?
+  colors      String    @default("[]") // brand/product colors provided by user
+  /// AI analysis: { summary, productType, colors:[{name,hex}], materials, logos, graphics, fit, fidelityNotes[] }
+  analysis    String?
+  analysisStatus String @default("pending") // pending | completed | failed
+  source      String    @default("upload") // upload | shopify
+  externalId  String?   // e.g. Shopify product id
+  variants    String    @default("[]")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creatives   Creative[]
+
+  @@index([workspaceId, createdAt])
+  @@unique([workspaceId, source, externalId])
+}
+
+/// AI creator / model. workspaceId = null → stock library creator available to everyone.
+model Creator {
+  id             String     @id @default(cuid())
+  workspaceId    String?
+  name           String
+  gender         String     // female | male | nonbinary
+  age            Int
+  appearance     String     // skin tone / ethnicity description
+  bodyType       String
+  hair           String
+  style          String     // casual | streetwear | luxury | athletic | minimal | boho
+  location       String
+  categories     String     @default("[]") // fashion categories
+  bio            String     @default("")
+  /// Locked identity description injected into every prompt for consistency
+  identityPrompt String
+  seed           Int
+  avatarUrl      String
+  referenceImages String    @default("[]")
+  voiceId        String?
+  isBrandCreator Boolean    @default(false)
+  createdAt      DateTime   @default(now())
+  workspace      Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creatives      Creative[]
+
+  @@index([workspaceId])
+}
+
+model GenerationJob {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  userId        String?
+  type          String    // photo | video | analyze_product
+  preset        String?   // catalog preset id
+  status        String    @default("queued") // queued | generating | processing | completed | failed
+  progress      Int       @default(0)
+  input         String    // JSON snapshot of everything needed to run
+  output        String?   // JSON
+  error         String?
+  creditsCost   Int       @default(0)
+  attempts      Int       @default(0)
+  provider      String?
+  providerJobId String?
+  batchId       String?   // groups variations generated together
+  runAfter      DateTime  @default(now())
+  lockedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  creative      Creative?
+
+  @@index([status, runAfter])
+  @@index([workspaceId, createdAt])
+}
+
+model Creative {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  jobId        String?   @unique
+  productId    String?
+  creatorId    String?
+  kind         String    // photo | video
+  preset       String
+  title        String
+  mediaUrl     String
+  thumbnailUrl String?
+  mimeType     String
+  width        Int?
+  height       Int?
+  durationSec  Int?
+  /// For videos / ads: { hook, script, scenes[], caption, cta, platform, tone }
+  script       String?
+  tags         String    @default("[]") // ugc | ad | photo ...
+  favorite     Boolean   @default(false)
+  batchId      String?
+  createdAt    DateTime  @default(now())
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  job          GenerationJob? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  product      Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  creator      Creator?  @relation(fields: [creatorId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+}
+
+/// Append-only credit ledger. Workspace.creditBalance is the cached sum.
+model CreditLedger {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  delta        Int
+  reason       String    // signup_bonus | subscription_grant | generation | refund | manual
+  jobId        String?
+  externalRef  String?   @unique // e.g. Stripe invoice id — idempotency
+  balanceAfter Int
+  createdAt    DateTime  @default(now())
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+}
+
+/// Future: Shopify / Meta Ads / TikTok Ads connections.
+model Integration {
+  id          String    @id @default(cuid())
+  workspaceId String
+  provider    String    // shopify | meta | tiktok
+  externalId  String    // shop domain / ad account id
+  accessToken String    // encrypt at rest in production
+  scopes      String    @default("")
+  status      String    @default("active")
+  lastSyncAt  DateTime?
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, provider, externalId])
+}
+
+model WebhookEvent {
+  id        String   @id // provider event id
+  provider  String
+  type      String
+  createdAt DateTime @default(now())
+}
