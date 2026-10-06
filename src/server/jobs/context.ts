@@ -19,6 +19,10 @@ export function toProductContext(p: Product): ProductContext {
 export function toCreatorContext(c: Creator): CreatorContext {
   return {
     id: c.id,
+    identityId: c.identityId,
+    eyes: c.eyes,
+    personality: c.personality,
+    niche: c.niche,
     name: c.name,
     gender: c.gender,
     age: c.age,

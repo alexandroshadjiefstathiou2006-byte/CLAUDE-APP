@@ -48,6 +48,8 @@ export async function createGenerationJobs(opts: { workspaceId: string; userId: 
     ? await db.creator.findMany({ where: { id: { in: r.creatorIds }, OR: [{ workspaceId }, { workspaceId: null }] } })
     : [];
   if (preset.needsCreator && creators.length === 0) throw new GenerationError(400, "Choose an AI creator for this format");
+  const draft = creators.find((c) => c.status === "draft");
+  if (draft) throw new GenerationError(400, `${draft.name} has no identity yet — choose a face for them first`);
   // keep the user's selection order
   const orderedCreators = r.creatorIds.map((id) => creators.find((c) => c.id === id)).filter((c): c is NonNullable<typeof c> => !!c);
 

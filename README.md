@@ -35,6 +35,31 @@ All keys go in `.env` and are read only by the server and the worker. They are n
 
 The minimum real setup is one `GEMINI_API_KEY`, which covers photos and talking UGC video. Add `ANTHROPIC_API_KEY` for real scripts and product analysis.
 
+## AI Creator identities
+
+Brands open **AI Creators → Create AI Creator** to make their own creator:
+
+1. **Describe the creator:** name, age, gender, appearance, hair, eyes, body type, fashion style, personality and target niche.
+2. **Generate Creator:** creates 4 fictional, photorealistic portrait candidates.
+3. **Pick one:** it becomes the **master identity reference**.
+4. **Identity pack:** generated automatically from the master: front-facing, 3/4 angle, side angle, smiling and neutral.
+
+Every creator has a persistent `identityId` (`idn_…`). References are stored as `CreatorReference` rows: `candidate`, `master`, `front`, `three_quarter`, `side`, `smiling`, `neutral`.
+
+When a creator appears in a product photo or video keyframe, the image provider receives three things (see `ImageRequest` in `src/server/ai/types.ts`):
+
+- the **product reference image** (image 1),
+- the **identity references**, master first, then front and 3/4,
+- the **prompt**, which explains which image is which.
+
+Other rules:
+
+- Creators must be fictional. Descriptions that compare the creator to a real person ("looks like…", "celebrity", "lookalike") are rejected, and every portrait prompt says the person is fictional.
+- Portraits are async jobs on the normal queue and cost 1 credit each (4 for candidates, 5 for the pack). Failed portraits are refunded.
+- Draft creators (no face chosen yet) can't be used for product generation.
+- Without an image API key, portraits are illustrated previews; the workflow is otherwise identical.
+- Tests: `npx tsx scripts/test-creator-identity.ts` (mock) and `--stub` (records the exact provider requests, no paid calls).
+
 ## Testing real generation
 
 ```bash

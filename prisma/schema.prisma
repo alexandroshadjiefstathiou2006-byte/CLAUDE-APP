@@ -96,31 +96,67 @@ model Product {
 }
 
 /// AI creator / model. workspaceId = null → stock library creator available to everyone.
+/// AI creator / model. workspaceId = null → stock library creator available to everyone.
+/// Always a FICTIONAL, AI-generated identity — never a real person or celebrity.
 model Creator {
   id             String     @id @default(cuid())
+  /// Persistent public identity id (e.g. "idn_…") — stable across edits and regenerated references.
+  identityId     String?    @unique
   workspaceId    String?
+  /// draft → identity being designed (candidates) · active → master reference chosen, usable
+  status         String     @default("active")
   name           String
   gender         String     // female | male | nonbinary
   age            Int
-  appearance     String     // skin tone / ethnicity description
+  appearance     String     // skin tone / features description
   bodyType       String
   hair           String
-  style          String     // casual | streetwear | luxury | athletic | minimal | boho
+  eyes           String     @default("")
+  style          String     // fashion style: casual | streetwear | luxury | athletic | minimal | boho
+  personality    String     @default("")
+  niche          String     @default("") // target niche, e.g. "streetwear for Gen Z"
   location       String
   categories     String     @default("[]") // fashion categories
   bio            String     @default("")
   /// Locked identity description injected into every prompt for consistency
   identityPrompt String
   seed           Int
+  /// Card image — the master identity reference once one is selected
   avatarUrl      String
+  /// Legacy list of reference URLs (stock creators); new identities use CreatorReference rows
   referenceImages String    @default("[]")
   voiceId        String?
   isBrandCreator Boolean    @default(false)
   createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @default(now()) @updatedAt
   workspace      Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   creatives      Creative[]
+  references     CreatorReference[]
 
   @@index([workspaceId])
+}
+
+/// Identity reference images for a creator.
+/// kind: candidate (portrait options before selection) · master (the chosen identity) ·
+///       front · three_quarter · side · smiling · neutral (the identity pack)
+model CreatorReference {
+  id        String   @id @default(cuid())
+  creatorId String
+  kind      String
+  url       String
+  mimeType  String
+  prompt    String   @default("")
+  provider  String   @default("")
+  seed      Int?
+  /// Candidate option number this image came from (the master/pack keep the chosen candidate's)
+  variant   Int?
+  /// Candidates: chosen one becomes the master. Pack images: current version in use.
+  active    Boolean  @default(true)
+  jobId     String?
+  createdAt DateTime @default(now())
+  creator   Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@index([creatorId, kind])
 }
 
 model GenerationJob {

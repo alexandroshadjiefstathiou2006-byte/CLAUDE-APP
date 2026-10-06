@@ -31,6 +31,11 @@ export interface ProductContext {
 
 export interface CreatorContext {
   id: string;
+  /** Persistent identity id (stable across generations). */
+  identityId?: string | null;
+  eyes?: string;
+  personality?: string;
+  niche?: string;
   name: string;
   gender: string;
   age: number;
@@ -109,21 +114,57 @@ export type ProviderResult =
 
 /* ── Provider interfaces ───────────────────────────────────────── */
 
+/** The identity pack angles every creator gets after its master portrait is chosen. */
+export const IDENTITY_PACK_KINDS = ["front", "three_quarter", "side", "smiling", "neutral"] as const;
+export type IdentityPackKind = (typeof IDENTITY_PACK_KINDS)[number];
+export type IdentityReferenceKind = "master" | IdentityPackKind;
+
+/** A creator identity reference image passed to a provider. Raster images only. */
+export interface IdentityReference {
+  kind: IdentityReferenceKind;
+  data: Buffer;
+  mimeType: string;
+}
+
+/**
+ * One image generation. Providers receive up to three inputs:
+ *   1. identityReferences — the fictional creator's identity images (face/body consistency)
+ *   2. productImage       — the ORIGINAL product photo (product fidelity)
+ *   3. prompt             — what to generate (scene, pose, constraints)
+ * Image order sent to the model is: product first, then identity references in the given order.
+ */
 export interface ImageRequest {
   prompt: string;
   negativePrompt?: string;
   /**
    * Product photo — the primary reference. Providers MUST condition on it for fidelity.
-   * Null only for creator identity portraits (no product involved).
+   * Null for creator identity portraits (no product involved).
    */
   productImage: { data: Buffer; mimeType: string } | null;
-  /** Identity references for the creator (face consistency). Raster images only. */
-  creatorReferences?: { data: Buffer; mimeType: string }[];
+  /** Creator identity references, most important first (master, front, three_quarter, …). */
+  identityReferences?: IdentityReference[];
   aspect: "1:1" | "4:5" | "9:16";
   quality: "standard" | "high";
   seed?: number;
   /** Extra context mock/preview renderers can use. */
-  meta: { title: string; presetLabel: string; product: ProductContext | null; creator?: CreatorContext | null; location: string; camera: string };
+  meta: {
+    title: string;
+    presetLabel: string;
+    product: ProductContext | null;
+    creator?: CreatorContext | null;
+    location: string;
+    camera: string;
+    /** Set when generating an identity portrait (candidate or pack angle). */
+    portrait?: { kind: "candidate" | IdentityPackKind | "master"; variant: number };
+  };
+}
+
+/** Ordered list of all images a provider should send: product first, then identity refs. */
+export function referenceImages(req: ImageRequest) {
+  return [
+    ...(req.productImage ? [{ role: "product" as const, kind: "product", ...req.productImage }] : []),
+    ...(req.identityReferences ?? []).map((r) => ({ role: "identity" as const, ...r })),
+  ];
 }
 
 export interface ImageGenerationProvider {

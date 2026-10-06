@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { renderAvatarSvg } from "@/server/render/svg";
 import { storage } from "@/server/storage";
 import { applyCredits } from "@/server/billing/credits";
+import { newIdentityId } from "@/server/creators/identity";
 
 type HairColor = "black" | "brown" | "blonde" | "red" | "grey" | "auburn";
 type HairLen = "short" | "long" | "medium" | "curly" | "buzz";
@@ -41,6 +42,11 @@ const DEMO_HOODIE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80
 </svg>`;
 
 export async function seedDatabase() {
+  // every creator gets a persistent identity id (backfills creators created before identities existed)
+  for (const c of await db.creator.findMany({ where: { identityId: null }, select: { id: true } })) {
+    await db.creator.update({ where: { id: c.id }, data: { identityId: newIdentityId() } });
+  }
+
   const existing = await db.creator.count({ where: { workspaceId: null } });
   if (existing === 0) {
     for (const [i, c] of CREATORS.entries()) {
@@ -48,6 +54,7 @@ export async function seedDatabase() {
       const { url } = await storage().put({ folder: "stock/creators", data: Buffer.from(svg), mimeType: "image/svg+xml" });
       await db.creator.create({
         data: {
+          identityId: newIdentityId(),
           name: c.name,
           gender: c.gender,
           age: c.age,

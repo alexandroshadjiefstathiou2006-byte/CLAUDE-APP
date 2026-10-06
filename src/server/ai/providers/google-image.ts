@@ -6,7 +6,7 @@
  * Env: IMAGE_PROVIDER=google, GEMINI_API_KEY, GEMINI_IMAGE_MODEL (default gemini-2.5-flash-image)
  * Network: generativelanguage.googleapis.com
  */
-import type { ImageGenerationProvider, ImageRequest, ProviderResult } from "../types";
+import { referenceImages, type ImageGenerationProvider, type ImageRequest, type ProviderResult } from "../types";
 import { httpError, ProviderError, providerFetch } from "../errors";
 import { imageSize } from "../media";
 
@@ -31,13 +31,18 @@ export class GoogleImageProvider implements ImageGenerationProvider {
 
   async generate(req: ImageRequest): Promise<ProviderResult> {
     const model = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
-    const images = [req.productImage, ...(req.creatorReferences ?? [])].filter((x): x is NonNullable<typeof x> => !!x);
+    // Each image is preceded by a short label so the model knows which is the product and
+    // which are identity references (and which angle each identity image shows).
+    const images = referenceImages(req);
     const body = {
       contents: [
         {
           role: "user",
           parts: [
-            ...images.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data.toString("base64") } })),
+            ...images.flatMap((img, i) => [
+              { text: `Image ${i + 1}: ${img.role === "product" ? "PRODUCT reference — reproduce this exact item" : `IDENTITY reference of the person (${img.kind.replace("_", " ")})`}` },
+              { inlineData: { mimeType: img.mimeType, data: img.data.toString("base64") } },
+            ]),
             { text: req.prompt },
           ],
         },

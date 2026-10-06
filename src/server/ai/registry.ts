@@ -25,6 +25,7 @@ export function scriptProvider(): ScriptGenerationProvider {
 }
 
 export function imageProvider(): ImageGenerationProvider {
+  if (testOverrides.image) return testOverrides.image;
   const id = process.env.IMAGE_PROVIDER || "mock";
   const inner = once(`image:${id}`, () => (id === "openai" ? new OpenAIImageProvider() : id === "google" ? new GoogleImageProvider() : new MockImageProvider()));
   return testFaults.imageFailures > 0 ? flakyImage(inner) : inner;
@@ -35,6 +36,9 @@ export function imageProvider(): ImageGenerationProvider {
  * calls fail with a retryable upstream error so retry/refund behaviour can be verified for real.
  */
 export const testFaults = { imageFailures: 0 };
+
+/** Test-only: replace the image provider (e.g. a capturing stub) to inspect provider requests. */
+export const testOverrides: { image: ImageGenerationProvider | null } = { image: null };
 function flakyImage(inner: ImageGenerationProvider): ImageGenerationProvider {
   return {
     name: inner.name,

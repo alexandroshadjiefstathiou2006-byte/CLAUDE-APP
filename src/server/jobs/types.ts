@@ -35,3 +35,10 @@ export interface VideoJobState {
 
 export type JobStatus = "queued" | "generating" | "processing" | "completed" | "failed";
 export const TERMINAL: JobStatus[] = ["completed", "failed"];
+
+/** One identity portrait for a creator: a selection candidate, or one identity-pack angle. */
+export interface CreatorPortraitJobInput {
+  creatorId: string;
+  kind: "candidate" | "front" | "three_quarter" | "side" | "smiling" | "neutral";
+  variant: number;
+}

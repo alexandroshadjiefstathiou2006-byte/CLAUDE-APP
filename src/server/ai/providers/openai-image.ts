@@ -5,7 +5,7 @@
  * Env: IMAGE_PROVIDER=openai, OPENAI_API_KEY, OPENAI_IMAGE_MODEL (default gpt-image-1)
  * Network: api.openai.com must be allowed.
  */
-import type { ImageGenerationProvider, ImageRequest, ProviderResult } from "../types";
+import { referenceImages, type ImageGenerationProvider, type ImageRequest, type ProviderResult } from "../types";
 import { httpError, ProviderError, providerFetch } from "../errors";
 import { imageSize } from "../media";
 
@@ -22,7 +22,8 @@ export class OpenAIImageProvider implements ImageGenerationProvider {
     if (!key) throw new ProviderError(NAME, "config", "OPENAI_API_KEY is not set");
     const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
     const size = SIZES[req.aspect] ?? "1024x1536";
-    const images = [req.productImage, ...(req.creatorReferences ?? [])].filter((x): x is NonNullable<typeof x> => !!x);
+    // Order matters: the prompt refers to "image 1" (product) and the identity images after it.
+    const images = referenceImages(req);
 
     let res: Response;
     if (images.length === 0) {
@@ -39,7 +40,7 @@ export class OpenAIImageProvider implements ImageGenerationProvider {
       form.append("quality", req.quality === "high" ? "high" : "medium");
       form.append("input_fidelity", "high");
       form.append("n", "1");
-      images.forEach((img, i) => form.append("image[]", new Blob([new Uint8Array(img.data)], { type: img.mimeType }), `ref-${i}.png`));
+      images.forEach((img, i) => form.append("image[]", new Blob([new Uint8Array(img.data)], { type: img.mimeType }), `${i + 1}-${img.kind}.png`));
       res = await providerFetch(NAME, "https://api.openai.com/v1/images/edits", {
         method: "POST",
         headers: { Authorization: `Bearer ${key}` },

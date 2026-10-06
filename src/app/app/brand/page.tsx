@@ -8,7 +8,7 @@ export default async function BrandPage() {
   const { workspace } = await requireContext();
   const [kit, creators] = await Promise.all([
     db.brandKit.findUnique({ where: { workspaceId: workspace.id } }),
-    db.creator.findMany({ where: { OR: [{ workspaceId: null }, { workspaceId: workspace.id }] }, select: { id: true, name: true, avatarUrl: true } }),
+    db.creator.findMany({ where: { OR: [{ workspaceId: null }, { workspaceId: workspace.id }], status: "active" }, select: { id: true, name: true, avatarUrl: true } }),
   ]);
   return (
     <>

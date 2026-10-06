@@ -23,8 +23,43 @@ export function paletteFor(key: string) {
 const SKIN = ["#F3D6C1", "#E8BFA0", "#D7A27E", "#B97E57", "#8D5A3B", "#5E3A26"];
 const HAIR = { black: "#1B1716", brown: "#4A2F22", blonde: "#D8B46A", red: "#9C3F22", grey: "#A9A6A3", auburn: "#7A3B23" };
 
-export function renderAvatarSvg(opts: { name: string; skinIndex: number; hairColor: keyof typeof HAIR; hairLength: "short" | "long" | "medium" | "curly" | "buzz"; bg: [string, string]; outfit: string }) {
+export type HairColor = keyof typeof HAIR;
+export type HairLength = "short" | "long" | "medium" | "curly" | "buzz";
+
+const EYES: Record<string, string> = { brown: "#4a2f22", blue: "#3b6ea8", green: "#3f7a4f", hazel: "#7a5a2e", grey: "#6b7480", amber: "#a5651d" };
+
+export function renderAvatarSvg(opts: {
+  name: string;
+  skinIndex: number;
+  hairColor: HairColor;
+  hairLength: HairLength;
+  bg: [string, string];
+  outfit: string;
+  /** Preview-only extras used for identity candidates and pack angles. */
+  eyeColor?: string;
+  /** -1 (looking left) … 0 (front) … 1; ±1 renders a side profile */
+  turn?: number;
+  expression?: "smile" | "neutral" | "soft";
+  label?: string;
+}) {
   const skin = SKIN[opts.skinIndex % SKIN.length];
+  const turn = Math.max(-1, Math.min(1, opts.turn ?? 0));
+  const dx = turn * 26;
+  const profile = Math.abs(turn) >= 0.95;
+  const eye = EYES[(opts.eyeColor ?? "").toLowerCase().split(/\s+/).find((w) => EYES[w]) ?? "brown"] ?? "#2a1d18";
+  const mouth =
+    opts.expression === "smile"
+      ? `<path d="M${180 + dx} 234q${20} 20 40 0z" fill="#fff" stroke="#8c4a3c" stroke-width="4" stroke-linejoin="round"/>`
+      : opts.expression === "neutral"
+        ? `<path d="M${186 + dx} 238h28" stroke="#8c4a3c" stroke-width="5" stroke-linecap="round"/>`
+        : `<path d="M${184 + dx} 238q16 12 32 0" stroke="#8c4a3c" stroke-width="5" fill="none" stroke-linecap="round"/>`;
+  const eyes = profile
+    ? `<ellipse cx="${200 + dx * 1.6}" cy="196" rx="5" ry="7" fill="${eye}"/>`
+    : `<ellipse cx="${174 + dx}" cy="196" rx="6" ry="7" fill="${eye}"/><ellipse cx="${226 + dx}" cy="196" rx="6" ry="7" fill="${eye}"/>`;
+  const nose = turn !== 0 ? `<path d="M${200 + dx * 1.3} 204l${turn > 0 ? 8 : -8} 18h${turn > 0 ? -8 : 8}" stroke="#00000033" stroke-width="3" fill="none"/>` : "";
+  const label = opts.label
+    ? `<rect x="16" y="16" width="${opts.label.length * 9 + 24}" height="30" rx="15" fill="#ffffffd9"/><text x="28" y="36" font-family="Inter,Arial" font-size="14" font-weight="600" fill="#16161D">${escapeXml(opts.label)}</text>`
+    : "";
   const hair = HAIR[opts.hairColor];
   const hairShape =
     opts.hairLength === "long"
@@ -44,11 +79,12 @@ export function renderAvatarSvg(opts: { name: string; skinIndex: number; hairCol
   <rect width="400" height="500" fill="url(#bg)"/>
   <path d="M70 500c0-96 58-150 130-150s130 54 130 150z" fill="${opts.outfit}"/>
   <rect x="176" y="250" width="48" height="70" rx="20" fill="${skin}"/>
-  <ellipse cx="200" cy="190" rx="70" ry="84" fill="${skin}"/>
+  <ellipse cx="${200 + dx * 0.4}" cy="190" rx="${profile ? 62 : 70}" ry="84" fill="${skin}"/>
   ${hairShape}
-  <ellipse cx="174" cy="196" rx="6" ry="7" fill="#2a1d18" opacity=".8"/>
-  <ellipse cx="226" cy="196" rx="6" ry="7" fill="#2a1d18" opacity=".8"/>
-  <path d="M184 238q16 12 32 0" stroke="#8c4a3c" stroke-width="5" fill="none" stroke-linecap="round"/>
+  ${eyes}
+  ${nose}
+  ${mouth}
+  ${label}
 </svg>`;
 }
 

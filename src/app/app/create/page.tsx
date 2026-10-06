@@ -8,7 +8,7 @@ export default async function CreatePage({ searchParams }: { searchParams: Promi
   const { workspace } = await requireContext();
   const [products, creators, brandKit] = await Promise.all([
     db.product.findMany({ where: { workspaceId: workspace.id }, orderBy: { createdAt: "desc" }, select: { id: true, name: true, imageUrl: true, analysisStatus: true } }),
-    db.creator.findMany({ where: { OR: [{ workspaceId: null }, { workspaceId: workspace.id }] }, orderBy: [{ isBrandCreator: "desc" }, { createdAt: "asc" }] }),
+    db.creator.findMany({ where: { OR: [{ workspaceId: null }, { workspaceId: workspace.id }], status: "active" }, orderBy: [{ isBrandCreator: "desc" }, { createdAt: "asc" }] }),
     db.brandKit.findUnique({ where: { workspaceId: workspace.id } }),
   ]);
   return (

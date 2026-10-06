@@ -13,16 +13,17 @@ import { db } from "@/lib/db";
 import { parseJson, toJson } from "@/lib/json";
 import { getPreset, type PhotoPreset, type VideoPreset } from "@/lib/catalog";
 import { imageProvider, scriptProvider, videoProvider, voiceProvider } from "@/server/ai/registry";
-import type { CreatorContext, GeneratedFile, ProviderResult, VideoRequest } from "@/server/ai/types";
+import type { CreatorContext, GeneratedFile, IdentityReference, ProviderResult, VideoRequest } from "@/server/ai/types";
+import { loadIdentityReferences, masterReference, renderMockPortrait, storageFolder } from "@/server/creators/identity";
 import { describeError, ProviderError } from "@/server/ai/errors";
 import { isRaster, toProviderImage, type ImageBytes } from "@/server/ai/media";
 import {
-  buildCreatorPortraitPrompt, buildKeyframePrompt, buildPhotoPrompt, buildVideoPrompt, dialogueForClip, NEGATIVE_PROMPT,
+  buildCandidatePrompt, buildCreatorPortraitPrompt, buildIdentityPackPrompt, buildKeyframePrompt, buildPhotoPrompt, buildVideoPrompt, dialogueForClip, NEGATIVE_PROMPT,
 } from "@/server/generation/prompts";
 import { storage } from "@/server/storage";
 import { refundJob } from "@/server/billing/credits";
-import { toProductContext } from "./context";
-import type { AnalyzeJobInput, CreativeJobInput, VideoJobState } from "./types";
+import { toCreatorContext, toProductContext } from "./context";
+import type { AnalyzeJobInput, CreativeJobInput, CreatorPortraitJobInput, VideoJobState } from "./types";
 
 const MAX_ATTEMPTS = 3;
 const POLL_INTERVAL_MS = Number(process.env.VIDEO_POLL_INTERVAL_MS ?? 8000);
@@ -69,6 +70,7 @@ export async function runJob(job: GenerationJob) {
     if (job.type === "analyze_product") return await runAnalyze(job);
     if (job.type === "photo") return await runPhoto(job);
     if (job.type === "video") return await runVideo(job);
+    if (job.type === "creator_portrait") return await runCreatorPortrait(job);
     throw new ProviderError("worker", "config", `Unknown job type ${job.type}`);
   } catch (err) {
     await handleFailure(job, err);
@@ -138,50 +140,98 @@ async function productReference(input: CreativeJobInput): Promise<ImageBytes> {
 }
 
 /**
- * Identity anchor for a creator: a raster reference photo. Brand creators may have an uploaded
- * reference; for others we generate a neutral photoreal portrait ONCE (no product, no tenant data)
- * and reuse it as the face reference for every future generation → consistent identity.
+ * Identity references for a creator: master + identity pack (front, 3/4, …), raster only.
+ * Creators without a raster identity yet (e.g. stock creators) get a neutral photoreal master
+ * portrait generated ONCE (no product, no tenant data) and stored as their master reference.
  */
-async function creatorReference(job: GenerationJob, creator: CreatorContext | null): Promise<ImageBytes | null> {
-  if (!creator) return null;
+async function creatorIdentityRefs(job: GenerationJob, creator: CreatorContext | null): Promise<IdentityReference[]> {
+  if (!creator) return [];
+  const refs = await loadIdentityReferences(creator.id);
+  if (refs.length) return refs;
   const images = imageProvider();
-  const row = await db.creator.findUnique({ where: { id: creator.id } });
-  const refs = parseJson<string[]>(row?.referenceImages, creator.referenceImages);
-  for (const url of refs) {
-    try {
-      const img = await storage().read(url);
-      if (isRaster(img.mimeType)) return toProviderImage(img, 1024);
-    } catch {
-      /* missing file — fall through */
-    }
-  }
-  if (images.name === "mock") return null;
+  if (images.name === "mock") return [];
   try {
-    log(job, `generating identity portrait for creator ${creator.name}`);
+    log(job, `generating master identity portrait for creator ${creator.name}`);
     const res = await images.generate({
       prompt: buildCreatorPortraitPrompt(creator),
       productImage: null,
       aspect: "4:5",
       quality: "standard",
       seed: creator.seed,
-      meta: { title: creator.name, presetLabel: "portrait", product: null, creator, location: "studio", camera: "portrait" },
+      meta: { title: creator.name, presetLabel: "portrait", product: null, creator, location: "studio", camera: "portrait", portrait: { kind: "master", variant: 0 } },
     });
-    if (res.status !== "completed") return null;
+    if (res.status !== "completed") return [];
     const file = res.files[0];
-    const { url } = await storage().put({ folder: "creators/portraits", data: file.data, mimeType: file.mimeType });
-    // Only the first writer wins; concurrent jobs keep whichever portrait was stored first.
-    const latest = await db.creator.findUnique({ where: { id: creator.id } });
-    const existing = parseJson<string[]>(latest?.referenceImages, []);
-    if (existing.length === 0) {
-      await db.creator.update({ where: { id: creator.id }, data: { referenceImages: toJson([url]), avatarUrl: url } });
-      return toProviderImage(file, 1024);
-    }
-    return creatorReference(job, creator);
+    const row = await db.creator.findUniqueOrThrow({ where: { id: creator.id } });
+    // Only the first writer wins; concurrent jobs reuse whichever master was stored first.
+    if (await masterReference(creator.id).then((m) => m && isRaster(m.mimeType))) return loadIdentityReferences(creator.id);
+    const { url } = await storage().put({ folder: storageFolder(row), data: file.data, mimeType: file.mimeType });
+    await db.$transaction([
+      db.creatorReference.updateMany({ where: { creatorId: creator.id, kind: "master" }, data: { active: false } }),
+      db.creatorReference.create({ data: { creatorId: creator.id, kind: "master", url, mimeType: file.mimeType, provider: images.name, seed: creator.seed, jobId: job.id } }),
+      db.creator.update({ where: { id: creator.id }, data: { avatarUrl: url } }),
+    ]);
+    return [{ kind: "master", ...(await toProviderImage(file, 1024)) }];
   } catch (err) {
     // Non-fatal: generate without the identity anchor rather than failing the user's job.
     log(job, "identity portrait failed, continuing without face reference", describeError(err).detail);
-    return null;
+    return [];
   }
+}
+
+/**
+ * Creator portrait job: one identity candidate, or one identity-pack angle conditioned on the
+ * master reference. Results are stored as CreatorReference rows.
+ */
+async function runCreatorPortrait(job: GenerationJob) {
+  const input = parseJson<CreatorPortraitJobInput | null>(job.input, null);
+  if (!input) throw new ProviderError("worker", "invalid_request", "Job input is corrupt");
+  const row = await db.creator.findUnique({ where: { id: input.creatorId } });
+  if (!row) throw new ProviderError("worker", "invalid_request", "Creator no longer exists");
+  const creator = toCreatorContext(row);
+  const images = imageProvider();
+  const isCandidate = input.kind === "candidate";
+
+  let file: GeneratedFile;
+  let prompt: string;
+  // Pack images keep the chosen candidate's look; candidates each get their own option number.
+  const master = isCandidate ? null : await masterReference(row.id);
+  const lookVariant = isCandidate ? input.variant : (master?.variant ?? 0);
+  if (images.name === "mock") {
+    prompt = "(mock preview)";
+    await new Promise((r) => setTimeout(r, 700 + Math.random() * 900));
+    file = { data: Buffer.from(renderMockPortrait(row, { kind: input.kind, variant: lookVariant })), mimeType: "image/svg+xml", width: 400, height: 500 };
+  } else {
+    let identityReferences: IdentityReference[] = [];
+    if (!isCandidate) {
+      if (!master) throw new ProviderError("worker", "invalid_request", "Select a master portrait before generating the identity pack");
+      identityReferences = [{ kind: "master", ...(await toProviderImage(await storage().read(master.url), 1024)) }];
+    }
+    prompt = isCandidate ? buildCandidatePrompt(creator, input.variant) : buildIdentityPackPrompt(creator, input.kind);
+    log(job, `portrait ${input.kind} → ${images.name}`, { refs: identityReferences.length });
+    const res = await images.generate({
+      prompt,
+      productImage: null,
+      identityReferences,
+      aspect: "4:5",
+      quality: "standard",
+      seed: row.seed + input.variant * 101,
+      meta: { title: row.name, presetLabel: "portrait", product: null, creator, location: "studio", camera: "portrait", portrait: { kind: input.kind, variant: input.variant } },
+    });
+    if (res.status !== "completed") throw new ProviderError(images.name, "config", "Portrait generation returned a pending result");
+    file = res.files[0];
+  }
+  if (!file?.data?.length) throw new ProviderError(images.name, "bad_output", "Provider returned an empty portrait");
+
+  const { url } = await storage().put({ folder: storageFolder(row), data: file.data, mimeType: file.mimeType });
+  await db.$transaction([
+    // a regenerated pack angle replaces the previous version of that angle
+    ...(isCandidate ? [] : [db.creatorReference.updateMany({ where: { creatorId: row.id, kind: input.kind, active: true }, data: { active: false } })]),
+    db.creatorReference.create({
+      data: { creatorId: row.id, kind: input.kind, url, mimeType: file.mimeType, prompt, provider: images.name, seed: row.seed + input.variant * 101, variant: lookVariant, active: !isCandidate, jobId: job.id },
+    }),
+    db.generationJob.update({ where: { id: job.id }, data: { status: "completed", progress: 100, lockedAt: null, completedAt: new Date(), provider: images.name, error: null } }),
+  ]);
 }
 
 async function runPhoto(job: GenerationJob) {
@@ -200,17 +250,17 @@ async function runPhoto(job: GenerationJob) {
   await setProgress(job.id, 15);
 
   const productImage = await productReference(input);
-  const creatorRef = preset.needsCreator ? await creatorReference(job, input.creator) : null;
+  const identityReferences = preset.needsCreator ? await creatorIdentityRefs(job, input.creator) : [];
   await setProgress(job.id, 30);
 
-  const prompt = buildPhotoPrompt({ preset, product: input.product, creator: input.creator, brand: input.brand, variation: input.variation, aspect: input.options.aspect, hasCreatorRef: !!creatorRef });
-  log(job, `image request → ${images.name}`, { refs: 1 + (creatorRef ? 1 : 0), aspect: input.options.aspect, quality: input.options.quality });
+  const prompt = buildPhotoPrompt({ preset, product: input.product, creator: input.creator, brand: input.brand, variation: input.variation, aspect: input.options.aspect, identityRefs: identityReferences.length });
+  log(job, `image request → ${images.name}`, { product: 1, identity: identityReferences.map((r) => r.kind), aspect: input.options.aspect, quality: input.options.quality });
   const started = Date.now();
   const result = await images.generate({
     prompt,
     negativePrompt: concept.negativePrompt || NEGATIVE_PROMPT,
     productImage,
-    creatorReferences: creatorRef ? [creatorRef] : [],
+    identityReferences,
     aspect: input.options.aspect,
     quality: input.options.quality,
     seed: input.variation.seed,
@@ -223,7 +273,7 @@ async function runPhoto(job: GenerationJob) {
     kind: "photo",
     title: concept.title,
     provider: images.name,
-    script: { caption: concept.caption, prompt, usedCreatorReference: !!creatorRef },
+    script: { caption: concept.caption, prompt, identityReferences: identityReferences.map((r) => r.kind), identityId: input.creator?.identityId ?? null },
     tags: ["photo", ...(preset.needsCreator ? ["model"] : [])],
   });
 }
@@ -284,13 +334,13 @@ async function runVideo(job: GenerationJob) {
       if (images.name === "mock") {
         state.keyframeUrl = input.product.imageUrl;
       } else {
-        const creatorRef = preset.needsCreator ? await creatorReference(job, input.creator) : null;
-        const kfPrompt = buildKeyframePrompt({ preset, product: input.product, creator: input.creator, brand: input.brand, variation: input.variation, firstScene: script.scenes[0], hasCreatorRef: !!creatorRef });
+        const identityReferences = preset.needsCreator ? await creatorIdentityRefs(job, input.creator) : [];
+        const kfPrompt = buildKeyframePrompt({ preset, product: input.product, creator: input.creator, brand: input.brand, variation: input.variation, firstScene: script.scenes[0], identityRefs: identityReferences.length });
         log(job, `keyframe request → ${images.name}`);
         const kf = await images.generate({
           prompt: kfPrompt,
           productImage,
-          creatorReferences: creatorRef ? [creatorRef] : [],
+          identityReferences,
           aspect: "9:16",
           quality: "standard",
           seed: input.variation.seed,
