@@ -9,6 +9,7 @@ import type {
 } from "../types";
 import { renderPhotoPreviewSvg, renderVideoPreviewSvg } from "@/server/render/svg";
 import { toDataUri } from "@/server/storage";
+import { ProviderError } from "../errors";
 
 const dataUri = (f: { data: Buffer; mimeType: string }) => `data:${f.mimeType};base64,${f.data.toString("base64")}`;
 
@@ -25,8 +26,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class MockImageProvider implements ImageGenerationProvider {
   readonly name = "mock";
+  readonly estimatedCostUsd = { standard: 0, high: 0 };
   async generate(req: ImageRequest): Promise<ProviderResult> {
     await sleep(1200 + Math.random() * 1500); // feel like a real generation
+    if (!req.productImage) {
+      // creator portrait request: the mock keeps the illustrated avatar
+      throw new ProviderError("mock", "config", "Mock provider does not generate creator portraits");
+    }
     const svg = renderPhotoPreviewSvg({
       productDataUri: dataUri(req.productImage),
       creatorAvatarDataUri: await avatarUri(req.meta.creator?.avatarUrl),
@@ -46,6 +52,9 @@ export class MockImageProvider implements ImageGenerationProvider {
 /** Simulates an async provider: first submit returns "pending", the worker polls until done. */
 export class MockVideoProvider implements VideoGenerationProvider {
   readonly name = "mock";
+  readonly nativeAudio = false;
+  readonly durationOptions = [10, 15, 20, 30];
+  readonly estimatedCostUsdPerSecond = 0;
   async submit(): Promise<ProviderResult> {
     return { status: "pending", providerJobId: `mock_${Date.now()}`, progress: 30 };
   }

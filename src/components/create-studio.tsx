@@ -7,7 +7,7 @@ import {
   ArrowLeft, ArrowRight, Camera, Check, Clapperboard, Coins, Film, Images, Mic, Package, Plus, Sparkles, UserRound, Wand2,
 } from "lucide-react";
 import {
-  AD_STYLES, MAX_VARIATIONS, PHOTO_ASPECTS, PHOTO_PRESETS, PLATFORMS, VIDEO_DURATIONS, VIDEO_PRESETS, generationCost, getPreset,
+  AD_STYLES, MAX_VARIATIONS, PHOTO_ASPECTS, PHOTO_PRESETS, PLATFORMS, VIDEO_PRESETS, generationCost, getPreset,
   type CreativeKind, type Quality,
 } from "@/lib/catalog";
 import { cn } from "@/lib/utils";
@@ -32,6 +32,8 @@ export function CreateStudio(props: {
   products: ProductLite[];
   creators: CreatorView[];
   credits: number;
+  /** Clip lengths supported by the configured video engine. */
+  videoDurations: number[];
   brandName: string;
   initial: { productId?: string; creatorId?: string; kind?: CreativeKind; presetId?: string; count?: number; sourceCreativeId?: string };
 }) {
@@ -46,7 +48,7 @@ export function CreateStudio(props: {
   const [quality, setQuality] = useState<Quality>("standard");
   const [aspect, setAspect] = useState<"4:5" | "1:1" | "9:16">("4:5");
   const [platform, setPlatform] = useState("tiktok");
-  const [duration, setDuration] = useState<number>(15);
+  const [duration, setDuration] = useState<number>(props.videoDurations.includes(15) ? 15 : props.videoDurations[props.videoDurations.length - 1]);
   const [styleId, setStyleId] = useState("authentic");
   const [count, setCount] = useState<number>(Math.min(MAX_VARIATIONS, Math.max(1, initial.count ?? (initialPreset?.kind === "video" ? 1 : 3))));
   const [step, setStep] = useState<Step>(() => {
@@ -250,7 +252,7 @@ export function CreateStudio(props: {
                   <Seg value={platform} onChange={setPlatform} options={PLATFORMS.map((p) => ({ id: p.id, label: p.label }))} />
                 </OptionRow>
                 <OptionRow label="Duration">
-                  <Seg value={String(duration)} onChange={(v) => setDuration(Number(v))} options={VIDEO_DURATIONS.map((d) => ({ id: String(d), label: `${d}s` }))} />
+                  <Seg value={String(duration)} onChange={(v) => setDuration(Number(v))} options={props.videoDurations.map((d) => ({ id: String(d), label: `${d}s` }))} />
                 </OptionRow>
               </>
             )}

@@ -129,7 +129,7 @@ export function CreativeLibrary({ creatives: initial, openId, initialFilter }: {
           {visible.map((c) => (
             <div key={c.id} className="group">
               <button onClick={() => setOpen(c.id)} className="relative block aspect-[4/5] w-full overflow-hidden rounded-2xl border border-line bg-zinc-100 shadow-card transition group-hover:shadow-lift">
-                <Media url={c.mediaUrl} mimeType={c.mimeType} alt={c.title} className="h-full w-full object-cover" />
+                <Media url={c.mediaUrl} mimeType={c.mimeType} poster={c.thumbnailUrl} alt={c.title} className="h-full w-full object-cover" />
                 <span className="absolute left-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur">
                   {c.kind === "video" ? <Film className="h-3 w-3" /> : <ImageIcon className="h-3 w-3" />}
                   {getPreset(c.preset)?.label}
@@ -168,6 +168,7 @@ interface ScriptData {
   hashtags?: string[];
   platform?: string;
   voiceUrl?: string | null;
+  dialogue?: string | null;
   scenes?: { order: number; title: string; shot: string; action: string; line?: string; durationSec: number }[];
 }
 
@@ -187,7 +188,7 @@ function CreativeModal({ creative, onClose, onUpdate, onDelete, onDuplicate }: {
     <Modal onClose={onClose} wide>
       <div className="grid md:grid-cols-[minmax(0,1fr)_380px]">
         <div className="flex items-center justify-center bg-zinc-100 p-4 md:min-h-[600px]">
-          <Media url={creative.mediaUrl} mimeType={creative.mimeType} alt={creative.title} controls className="max-h-[78vh] w-auto rounded-xl shadow-card" />
+          <Media url={creative.mediaUrl} mimeType={creative.mimeType} poster={creative.thumbnailUrl} alt={creative.title} controls className="max-h-[78vh] w-auto rounded-xl shadow-card" />
         </div>
         <div className="flex flex-col p-6 md:max-h-[92vh] md:overflow-y-auto">
           <div className="flex flex-wrap gap-1.5 pr-10">
@@ -240,6 +241,7 @@ function CreativeModal({ creative, onClose, onUpdate, onDelete, onDuplicate }: {
                   </ol>
                 </Section>
               )}
+              {script.dialogue && <Section label="Spoken in video"><p className="italic text-ink-2">“{script.dialogue}”</p></Section>}
               {script.voiceUrl && <Section label="Voiceover"><audio src={script.voiceUrl} controls className="w-full" /></Section>}
             </div>
           )}

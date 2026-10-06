@@ -26,7 +26,7 @@ export function CreativeThumb({ creative }: { creative: { id: string; title: str
   return (
     <Link href={`/app/library?open=${creative.id}`} className="group block">
       <div className="relative aspect-[4/5] overflow-hidden rounded-2xl border border-line bg-zinc-100 shadow-card transition group-hover:shadow-lift">
-        <Media url={creative.mediaUrl} mimeType={creative.mimeType} alt={creative.title} className="h-full w-full object-cover" />
+        <Media url={creative.mediaUrl} mimeType={creative.mimeType} poster={creative.thumbnailUrl} alt={creative.title} className="h-full w-full object-cover" />
         <span className="absolute left-2.5 top-2.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur">
           {creative.kind === "video" ? <Film className="h-3 w-3" /> : <ImageIcon className="h-3 w-3" />}
           {preset?.label ?? creative.kind}

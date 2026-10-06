@@ -26,7 +26,11 @@ export interface AnalyzeJobInput {
 export interface VideoJobState {
   script?: UGCScript;
   prompt?: string;
+  /** Generated start frame (creator + product) the video is animated from. */
+  keyframeUrl?: string;
   voiceUrl?: string | null;
+  /** Spoken line sent to providers with native audio. */
+  dialogue?: string | null;
 }
 
 export type JobStatus = "queued" | "generating" | "processing" | "completed" | "failed";

@@ -112,26 +112,36 @@ export type ProviderResult =
 export interface ImageRequest {
   prompt: string;
   negativePrompt?: string;
-  /** Product photo — the primary reference. Providers MUST condition on it for fidelity. */
-  productImage: { data: Buffer; mimeType: string };
-  /** Optional identity references for the creator (face consistency). */
+  /**
+   * Product photo — the primary reference. Providers MUST condition on it for fidelity.
+   * Null only for creator identity portraits (no product involved).
+   */
+  productImage: { data: Buffer; mimeType: string } | null;
+  /** Identity references for the creator (face consistency). Raster images only. */
   creatorReferences?: { data: Buffer; mimeType: string }[];
   aspect: "1:1" | "4:5" | "9:16";
   quality: "standard" | "high";
   seed?: number;
   /** Extra context mock/preview renderers can use. */
-  meta: { title: string; presetLabel: string; product: ProductContext; creator?: CreatorContext | null; location: string; camera: string };
+  meta: { title: string; presetLabel: string; product: ProductContext | null; creator?: CreatorContext | null; location: string; camera: string };
 }
 
 export interface ImageGenerationProvider {
   readonly name: string;
+  /** Approximate USD cost per image at standard / high quality — for cost reporting. */
+  readonly estimatedCostUsd: { standard: number; high: number };
   generate(req: ImageRequest): Promise<ProviderResult>;
 }
 
 export interface VideoRequest {
   prompt: string;
   script?: UGCScript | null;
-  /** Start frame / product reference. */
+  /**
+   * Start frame. In the real pipeline this is a generated photo of the creator with the product
+   * (so product + identity are already correct in frame 1); falls back to the product photo.
+   */
+  keyframe: { data: Buffer; mimeType: string };
+  /** Original product photo (some providers accept extra reference images). */
   productImage: { data: Buffer; mimeType: string };
   /** Voiceover audio for talking formats (lip-sync providers use it). */
   voiceover?: { data: Buffer; mimeType: string } | null;
@@ -143,6 +153,11 @@ export interface VideoRequest {
 
 export interface VideoGenerationProvider {
   readonly name: string;
+  /** Clip lengths this provider/model can produce, in seconds. */
+  readonly durationOptions: number[];
+  /** Does the provider generate synchronized audio/speech itself (e.g. Veo 3)? */
+  readonly nativeAudio: boolean;
+  readonly estimatedCostUsdPerSecond: number;
   /** Start generation. May complete synchronously or return a pending provider job id. */
   submit(req: VideoRequest): Promise<ProviderResult>;
   /** Poll a pending provider job. */

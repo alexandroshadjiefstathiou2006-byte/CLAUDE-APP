@@ -296,7 +296,6 @@ export const PHOTO_ASPECTS = [
   { id: "9:16", label: "9:16 Story" },
 ] as const;
 
-export const VIDEO_DURATIONS = [10, 15, 20, 30] as const;
 
 /* ── Credit pricing ─────────────────────────────────────────────── */
 

@@ -15,14 +15,13 @@ export function JobCard({ job, aspect = "aspect-[4/5]" }: { job: JobView; aspect
       <div className={cn("relative overflow-hidden rounded-2xl border border-line bg-white shadow-card", aspect)}>
         {done ? (
           <Link href={`/app/library?open=${job.creative!.id}`} className="block h-full w-full">
-            <Media url={job.creative!.mediaUrl} mimeType={job.creative!.mimeType} alt={job.creative!.title} className="h-full w-full object-cover" />
+            <Media url={job.creative!.mediaUrl} mimeType={job.creative!.mimeType} poster={job.creative!.thumbnailUrl} alt={job.creative!.title} className="h-full w-full object-cover" />
           </Link>
         ) : job.status === "failed" ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 bg-red-50/50 p-4 text-center">
             <AlertCircle className="h-6 w-6 text-red-500" />
             <div className="text-sm font-medium text-red-700">Generation failed</div>
-            <div className="line-clamp-3 text-[12px] text-red-600/80">{job.error ?? "Unknown error"}</div>
-            <div className="text-[12px] text-ink-3">Credits refunded</div>
+            <div className="line-clamp-4 text-[12px] text-red-600/80">{job.error ?? "Unknown error — your credits were refunded."}</div>
           </div>
         ) : (
           <div className="skeleton flex h-full flex-col items-center justify-center gap-3 p-4">

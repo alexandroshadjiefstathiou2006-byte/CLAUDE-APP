@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { requireContext } from "@/server/auth";
 import { CreateStudio } from "@/components/create-studio";
+import { videoProvider } from "@/server/ai/registry";
 
 export default async function CreatePage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const sp = await searchParams;
@@ -15,6 +16,7 @@ export default async function CreatePage({ searchParams }: { searchParams: Promi
       products={products}
       creators={creators.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() }))}
       credits={workspace.creditBalance}
+      videoDurations={videoProvider().durationOptions}
       brandName={brandKit?.brandName || workspace.name}
       initial={{
         productId: sp.product,

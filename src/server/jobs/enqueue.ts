@@ -2,7 +2,8 @@ import crypto from "crypto";
 import { z } from "zod/v4";
 import { db } from "@/lib/db";
 import { toJson } from "@/lib/json";
-import { AD_STYLES, MAX_VARIATIONS, VIDEO_DURATIONS, generationCost, getPreset } from "@/lib/catalog";
+import { AD_STYLES, MAX_VARIATIONS, generationCost, getPreset } from "@/lib/catalog";
+import { videoProvider } from "@/server/ai/registry";
 import { applyCredits } from "@/server/billing/credits";
 import { buildVariations } from "@/server/generation/variations";
 import { toBrandContext, toCreatorContext, toProductContext } from "./context";
@@ -18,7 +19,7 @@ export const GenerationRequestSchema = z.object({
   quality: z.enum(["standard", "high"]).default("standard"),
   aspect: z.enum(["1:1", "4:5", "9:16"]).default("4:5"),
   platform: z.string().default("tiktok"),
-  durationSec: z.number().int().refine((d) => (VIDEO_DURATIONS as readonly number[]).includes(d), "Unsupported duration").default(15),
+  durationSec: z.number().int().min(1).max(60).default(15),
   styleId: z.string().default("authentic"),
   sourceCreativeId: z.string().optional(),
 });
@@ -35,6 +36,10 @@ export async function createGenerationJobs(opts: { workspaceId: string; userId: 
   const { workspaceId, userId, request: r } = opts;
   const preset = getPreset(r.presetId);
   if (!preset) throw new GenerationError(400, "Unknown creative format");
+
+  if (preset.kind === "video" && !videoProvider().durationOptions.includes(r.durationSec)) {
+    throw new GenerationError(400, `This video engine supports ${videoProvider().durationOptions.join(" / ")}s clips`);
+  }
 
   const product = await db.product.findFirst({ where: { id: r.productId, workspaceId } });
   if (!product) throw new GenerationError(404, "Product not found");

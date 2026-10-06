@@ -9,6 +9,9 @@ import { AnthropicScriptProvider } from "./providers/anthropic-script";
 import { OpenAIImageProvider } from "./providers/openai-image";
 import { FalVideoProvider } from "./providers/fal-video";
 import { ElevenLabsVoiceProvider } from "./providers/elevenlabs-voice";
+import { GoogleImageProvider } from "./providers/google-image";
+import { GoogleVeoProvider } from "./providers/google-veo";
+import { ProviderError } from "./errors";
 
 const cache = new Map<string, unknown>();
 function once<T>(key: string, make: () => T): T {
@@ -23,12 +26,32 @@ export function scriptProvider(): ScriptGenerationProvider {
 
 export function imageProvider(): ImageGenerationProvider {
   const id = process.env.IMAGE_PROVIDER || "mock";
-  return once(`image:${id}`, () => (id === "openai" ? new OpenAIImageProvider() : new MockImageProvider()));
+  const inner = once(`image:${id}`, () => (id === "openai" ? new OpenAIImageProvider() : id === "google" ? new GoogleImageProvider() : new MockImageProvider()));
+  return testFaults.imageFailures > 0 ? flakyImage(inner) : inner;
+}
+
+/**
+ * Fault injection for the live test harness (scripts/live-test.ts) — makes the next N image
+ * calls fail with a retryable upstream error so retry/refund behaviour can be verified for real.
+ */
+export const testFaults = { imageFailures: 0 };
+function flakyImage(inner: ImageGenerationProvider): ImageGenerationProvider {
+  return {
+    name: inner.name,
+    estimatedCostUsd: inner.estimatedCostUsd,
+    async generate(req) {
+      if (testFaults.imageFailures > 0) {
+        testFaults.imageFailures--;
+        throw new ProviderError(inner.name, "upstream", "Injected test failure (HTTP 503 simulated)");
+      }
+      return inner.generate(req);
+    },
+  };
 }
 
 export function videoProvider(): VideoGenerationProvider {
   const id = process.env.VIDEO_PROVIDER || "mock";
-  return once(`video:${id}`, () => (id === "fal" ? new FalVideoProvider() : new MockVideoProvider()));
+  return once(`video:${id}`, () => (id === "fal" ? new FalVideoProvider() : id === "google" ? new GoogleVeoProvider() : new MockVideoProvider()));
 }
 
 export function voiceProvider(): VoiceGenerationProvider {

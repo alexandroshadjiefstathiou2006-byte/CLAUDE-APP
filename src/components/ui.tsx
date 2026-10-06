@@ -70,9 +70,10 @@ export function EmptyState({ icon, title, body, action }: { icon: React.ReactNod
 }
 
 /** Renders a creative's media: <video> for mp4, <img> for images & animated SVG previews. */
-export function Media({ url, mimeType, alt, className, controls }: { url: string; mimeType: string; alt: string; className?: string; controls?: boolean }) {
+export function Media({ url, mimeType, alt, className, controls, poster }: { url: string; mimeType: string; alt: string; className?: string; controls?: boolean; poster?: string | null }) {
   if (mimeType.startsWith("video/")) {
-    return <video src={url} className={className} muted loop playsInline autoPlay controls={controls} />;
+    // Grids show a muted looping preview; the preview modal gets controls (unmute for Veo audio).
+    return <video src={url} poster={poster ?? undefined} className={className} muted={!controls} loop playsInline autoPlay={!controls} controls={controls} preload="metadata" />;
   }
   // eslint-disable-next-line @next/next/no-img-element
   return <img src={url} alt={alt} className={className} loading="lazy" />;

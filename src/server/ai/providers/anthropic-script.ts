@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import { getPreset } from "@/lib/catalog";
 import { brandBlock, creatorBlock, NEGATIVE_PROMPT } from "@/server/generation/prompts";
+import { ProviderError } from "../errors";
 
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-5-5";
 
@@ -62,7 +63,9 @@ export class AnthropicScriptProvider implements ScriptGenerationProvider {
   private client = new Anthropic();
 
   private async parse<T extends z.ZodType>(schema: T, content: Anthropic.MessageParam["content"], effort: "low" | "medium" = "low") {
-    const response = await this.client.messages.parse(
+    let response;
+    try {
+      response = await this.client.messages.parse(
       {
         model: MODEL,
         max_tokens: 16000,
@@ -74,8 +77,17 @@ export class AnthropicScriptProvider implements ScriptGenerationProvider {
       },
       { headers: { "anthropic-beta": "server-side-fallback-2026-07-01" } },
     );
-    if (response.stop_reason === "refusal") throw new Error("The script model declined this request");
-    if (!response.parsed_output) throw new Error(`Script model returned no structured output (${response.stop_reason})`);
+    } catch (err) {
+      if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) throw new ProviderError("anthropic", "auth", err.message);
+      if (err instanceof Anthropic.NotFoundError) throw new ProviderError("anthropic", "config", err.message);
+      if (err instanceof Anthropic.RateLimitError) throw new ProviderError("anthropic", "rate_limit", err.message);
+      if (err instanceof Anthropic.BadRequestError) throw new ProviderError("anthropic", "invalid_request", err.message);
+      if (err instanceof Anthropic.InternalServerError) throw new ProviderError("anthropic", "upstream", err.message);
+      if (err instanceof Anthropic.APIConnectionError) throw new ProviderError("anthropic", "upstream", err.message);
+      throw err;
+    }
+    if (response.stop_reason === "refusal") throw new ProviderError("anthropic", "content_policy", "The script model declined this request");
+    if (!response.parsed_output) throw new ProviderError("anthropic", "bad_output", `No structured output (stop_reason=${response.stop_reason})`);
     return response.parsed_output as z.infer<T>;
   }
 

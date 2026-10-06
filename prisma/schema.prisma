@@ -133,7 +133,9 @@ model GenerationJob {
   progress      Int       @default(0)
   input         String    // JSON snapshot of everything needed to run
   output        String?   // JSON
-  error         String?
+  error         String?   // user-facing message
+  errorCode     String?
+  errorDetail   String?   // server-side debugging detail — never sent to the browser
   creditsCost   Int       @default(0)
   attempts      Int       @default(0)
   provider      String?

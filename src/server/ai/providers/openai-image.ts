@@ -1,43 +1,66 @@
 /**
- * OpenAI gpt-image-1 image provider using the *edits* endpoint so the product photo is used as a
- * reference (much higher product fidelity than text-to-image).
- * API key: OPENAI_API_KEY (set IMAGE_PROVIDER=openai).
+ * OpenAI GPT Image provider (images/edits endpoint) — the product photo is sent as a reference
+ * image, never described in text only. `input_fidelity=high` preserves faces/logos from inputs.
+ *
+ * Env: IMAGE_PROVIDER=openai, OPENAI_API_KEY, OPENAI_IMAGE_MODEL (default gpt-image-1)
+ * Network: api.openai.com must be allowed.
  */
 import type { ImageGenerationProvider, ImageRequest, ProviderResult } from "../types";
+import { httpError, ProviderError, providerFetch } from "../errors";
+import { imageSize } from "../media";
 
 const SIZES: Record<string, string> = { "1:1": "1024x1024", "4:5": "1024x1536", "9:16": "1024x1536" };
+const NAME = "openai";
 
 export class OpenAIImageProvider implements ImageGenerationProvider {
-  readonly name = "openai";
+  readonly name = NAME;
+  // gpt-image-1 list prices (1024x1536): medium ≈ $0.063, high ≈ $0.25, plus input image tokens.
+  readonly estimatedCostUsd = { standard: 0.07, high: 0.26 };
 
   async generate(req: ImageRequest): Promise<ProviderResult> {
     const key = process.env.OPENAI_API_KEY;
-    if (!key) throw new Error("OPENAI_API_KEY is not set");
+    if (!key) throw new ProviderError(NAME, "config", "OPENAI_API_KEY is not set");
+    const model = process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
+    const size = SIZES[req.aspect] ?? "1024x1536";
+    const images = [req.productImage, ...(req.creatorReferences ?? [])].filter((x): x is NonNullable<typeof x> => !!x);
 
-    const form = new FormData();
-    form.append("model", process.env.OPENAI_IMAGE_MODEL || "gpt-image-1");
-    form.append("prompt", `${req.prompt}\n\nAvoid: ${req.negativePrompt ?? ""}`);
-    form.append("size", SIZES[req.aspect] ?? "1024x1536");
-    form.append("quality", req.quality === "high" ? "high" : "medium");
-    form.append("input_fidelity", "high");
-    const ext = req.productImage.mimeType.split("/")[1] ?? "png";
-    form.append("image[]", new Blob([new Uint8Array(req.productImage.data)], { type: req.productImage.mimeType }), `product.${ext}`);
-    for (const [i, ref] of (req.creatorReferences ?? []).entries()) {
-      if (ref.mimeType === "image/svg+xml") continue; // illustrated stock avatars aren't useful references
-      form.append("image[]", new Blob([new Uint8Array(ref.data)], { type: ref.mimeType }), `creator-${i}.png`);
+    let res: Response;
+    if (images.length === 0) {
+      res = await providerFetch(NAME, "https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, prompt: req.prompt, size, quality: req.quality === "high" ? "high" : "medium", n: 1 }),
+      });
+    } else {
+      const form = new FormData();
+      form.append("model", model);
+      form.append("prompt", req.prompt);
+      form.append("size", size);
+      form.append("quality", req.quality === "high" ? "high" : "medium");
+      form.append("input_fidelity", "high");
+      form.append("n", "1");
+      images.forEach((img, i) => form.append("image[]", new Blob([new Uint8Array(img.data)], { type: img.mimeType }), `ref-${i}.png`));
+      res = await providerFetch(NAME, "https://api.openai.com/v1/images/edits", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}` },
+        body: form,
+      });
     }
+    const text = await res.text();
+    if (!res.ok) throw httpError(NAME, res.status, text, { contentPolicy: /moderation|safety|content_policy|policy_violation/i });
 
-    const res = await fetch("https://api.openai.com/v1/images/edits", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}` },
-      body: form,
-    });
-    if (!res.ok) throw new Error(`OpenAI image error ${res.status}: ${(await res.text()).slice(0, 500)}`);
-    const json = (await res.json()) as { data: { b64_json: string }[] };
-    const [w, h] = (SIZES[req.aspect] ?? "1024x1536").split("x").map(Number);
-    return {
-      status: "completed",
-      files: json.data.map((d) => ({ data: Buffer.from(d.b64_json, "base64"), mimeType: "image/png", width: w, height: h })),
-    };
+    let json: { data?: { b64_json?: string; url?: string }[] };
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new ProviderError(NAME, "bad_output", `Non-JSON response: ${text.slice(0, 300)}`);
+    }
+    const first = json.data?.[0];
+    let data: Buffer | null = null;
+    if (first?.b64_json) data = Buffer.from(first.b64_json, "base64");
+    else if (first?.url) data = Buffer.from(await (await fetch(first.url)).arrayBuffer());
+    if (!data?.length) throw new ProviderError(NAME, "bad_output", `No image in response: ${text.slice(0, 300)}`);
+    const { width, height } = await imageSize(data);
+    return { status: "completed", files: [{ data, mimeType: "image/png", width, height }] };
   }
 }
