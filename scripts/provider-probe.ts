@@ -15,7 +15,10 @@ import { describeError } from "@/server/ai/errors";
 import { toProviderImage } from "@/server/ai/media";
 
 async function main() {
-  const product = await toProviderImage({ data: readFileSync(process.argv[2] ?? "test-assets/09163_00.jpg"), mimeType: "image/jpeg" }, 512);
+  const args = process.argv.slice(2);
+  const only = args.includes("--only") ? args[args.indexOf("--only") + 1] : null;
+  const imagePath = args.find((a) => /\.(jpe?g|png|webp)$/i.test(a)) ?? "test-assets/09163_00.jpg";
+  const product = await toProviderImage({ data: readFileSync(imagePath), mimeType: "image/jpeg" }, 512);
   const meta = { title: "probe", presetLabel: "probe", product: null, creator: null, location: "studio", camera: "50mm" };
   const vreq = { prompt: "Slow camera orbit around the shirt.", keyframe: product, productImage: product, aspect: "9:16" as const, durationSec: 8, meta: { ...meta, product: null as never } };
   const probes: [string, () => Promise<unknown>][] = [
@@ -26,7 +29,7 @@ async function main() {
     ["elevenlabs", () => new ElevenLabsVoiceProvider().synthesize({ text: "Okay, this shirt fits so well." })],
     ["anthropic", () => new AnthropicScriptProvider().analyzeProduct({ id: "x", name: "Polo", description: "", category: "apparel", imageUrl: "", colors: [] }, product)],
   ];
-  for (const [name, run] of probes) {
+  for (const [name, run] of probes.filter(([n]) => !only || n.includes(only))) {
     const t = Date.now();
     try {
       const r = (await run()) as { status?: string; files?: { data: Buffer }[] } | null;
