@@ -3,7 +3,7 @@
  * API key: ANTHROPIC_API_KEY (set SCRIPT_PROVIDER=anthropic).
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod/v4";
 import type {
   PhotoConcept,
@@ -62,21 +62,20 @@ export class AnthropicScriptProvider implements ScriptGenerationProvider {
   readonly name = "anthropic";
   private client = new Anthropic();
 
-  private async parse<T extends z.ZodType>(schema: T, content: Anthropic.MessageParam["content"], effort: "low" | "medium" = "low") {
+  private async parse<T extends z.ZodType>(schema: T, content: Anthropic.Beta.BetaMessageParam["content"], effort: "low" | "medium" = "low") {
     let response;
     try {
-      response = await this.client.messages.parse(
-      {
+      // Beta endpoint so `fallbacks` is typed: if safety classifiers decline, the API
+      // re-runs the request on a fallback model inside the same call.
+      response = await this.client.beta.messages.parse({
         model: MODEL,
         max_tokens: 16000,
         system: SYSTEM,
         messages: [{ role: "user", content }],
-        output_config: { format: zodOutputFormat(schema), effort },
-        // Server-side fallback if a request is declined by safety classifiers.
+        output_config: { format: betaZodOutputFormat(schema), effort },
+        betas: ["server-side-fallback-2026-07-01"],
         fallbacks: "default",
-      },
-      { headers: { "anthropic-beta": "server-side-fallback-2026-07-01" } },
-    );
+      });
     } catch (err) {
       if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) throw new ProviderError("anthropic", "auth", err.message);
       if (err instanceof Anthropic.NotFoundError) throw new ProviderError("anthropic", "config", err.message);
@@ -107,7 +106,7 @@ Seller description: ${product.description || "(none)"}
 Extract exact colors (with hex), materials, every logo and graphic with its placement, the fit/shape, and
 fidelity constraints. Also list 3-5 customer-facing selling points grounded in what is visible or stated.`,
       },
-    ]);
+    ], "medium"); // fidelity depends on this analysis, so give it more thought than scripts
   }
 
   async generateUGCScript(req: ScriptRequest): Promise<UGCScript> {
