@@ -24,11 +24,17 @@ async function avatarUri(url?: string | null) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** MOCK_FAIL=1 makes every mock image/video call fail with a retryable error (to test retry + refund). */
+function maybeFail() {
+  if (process.env.MOCK_FAIL === "1") throw new ProviderError("mock", "upstream", "Injected failure (MOCK_FAIL=1)");
+}
+
 export class MockImageProvider implements ImageGenerationProvider {
   readonly name = "mock";
   readonly estimatedCostUsd = { standard: 0, high: 0 };
   async generate(req: ImageRequest): Promise<ProviderResult> {
     await sleep(1200 + Math.random() * 1500); // feel like a real generation
+    maybeFail();
     if (!req.productImage) {
       // creator portrait request: the mock keeps the illustrated avatar
       throw new ProviderError("mock", "config", "Mock provider does not generate creator portraits");
@@ -56,6 +62,7 @@ export class MockVideoProvider implements VideoGenerationProvider {
   readonly durationOptions = [10, 15, 20, 30];
   readonly estimatedCostUsdPerSecond = 0;
   async submit(): Promise<ProviderResult> {
+    maybeFail();
     return { status: "pending", providerJobId: `mock_${Date.now()}`, progress: 30 };
   }
   async poll(providerJobId: string, req: VideoRequest): Promise<ProviderResult> {

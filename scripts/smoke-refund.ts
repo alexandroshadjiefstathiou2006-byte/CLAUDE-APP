@@ -1,4 +1,4 @@
-/** Smoke test: a failing provider retries, then marks the job failed and refunds credits. */
+/** Smoke test (run with MOCK_FAIL=1): a failing provider retries, then marks the job failed and refunds credits. */
 import { db } from "@/lib/db";
 import { createGenerationJobs, GenerationRequestSchema } from "@/server/jobs/enqueue";
 import { drainQueue } from "@/server/jobs/runner";
@@ -17,6 +17,11 @@ async function main() {
     if (job.status === "failed" || job.status === "completed") { console.log(job.status, job.attempts, job.error); break; }
     await new Promise((r) => setTimeout(r, 1000));
   }
-  console.log("after refund", await bal(), "(expected", before + ")");
+  const after = await bal();
+  console.log("after refund", after, "(expected", before + ")");
+  if (process.env.MOCK_FAIL === "1" && after !== before) {
+    console.error("FAIL: credits were not refunded");
+    process.exit(1);
+  }
 }
 main().then(() => process.exit(0));
