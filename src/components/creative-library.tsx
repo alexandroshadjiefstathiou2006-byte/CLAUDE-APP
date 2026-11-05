@@ -137,7 +137,7 @@ export function CreativeLibrary({ creatives: initial, openId, initialFilter }: {
                 </span>
               </button>
               <div className="mt-2 flex items-center justify-between gap-2 px-1">
-                <span className="truncate text-[13px] font-medium text-ink-2">{c.title}</span>
+                <span className="truncate text-[13px] font-medium text-ink-2">{cardTitle(c.title, getPreset(c.preset)?.label)}</span>
                 <button onClick={() => update(c.id, { favorite: !c.favorite })} aria-label="Favorite" className="shrink-0">
                   <Heart className={cn("h-4 w-4 transition", c.favorite ? "fill-rose-500 text-rose-500" : "text-ink-4 hover:text-ink")} />
                 </button>
@@ -270,4 +270,11 @@ function Section({ label, children }: { label: string; children: React.ReactNode
       {children}
     </div>
   );
+}
+
+/** The badge already shows the format, so drop a repeated "Format · " prefix and keep the part that differs. */
+function cardTitle(title: string, presetLabel?: string) {
+  if (!presetLabel || !title.startsWith(`${presetLabel} · `)) return title;
+  const rest = title.slice(presetLabel.length + 3);
+  return rest.charAt(0).toUpperCase() + rest.slice(1);
 }

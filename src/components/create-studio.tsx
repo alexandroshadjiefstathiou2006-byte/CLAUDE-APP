@@ -153,9 +153,10 @@ export function CreateStudio(props: {
                   <span className={cn("flex h-5 w-5 items-center justify-center rounded-full text-[11px]", active ? "bg-white/20" : done ? "bg-emerald-500 text-white" : "bg-black/[.06]")}>
                     {done ? <Check className="h-3 w-3" /> : i + 1}
                   </span>
-                  {s.label}
+                  {/* on phones only the current step shows its name, so all 4 steps fit */}
+                  <span className={cn(!active && "hidden sm:inline")}>{s.label}</span>
                 </button>
-                {i < STEPS.length - 1 && <span className="h-px w-6 bg-line" />}
+                {i < STEPS.length - 1 && <span className="h-px w-4 bg-line sm:w-6" />}
               </li>
             );
           })}
