@@ -48,7 +48,8 @@ export function CreateStudio(props: {
   const [quality, setQuality] = useState<Quality>("standard");
   const [aspect, setAspect] = useState<"4:5" | "1:1" | "9:16">("4:5");
   const [platform, setPlatform] = useState("tiktok");
-  const [duration, setDuration] = useState<number>(props.videoDurations.includes(15) ? 15 : props.videoDurations[props.videoDurations.length - 1]);
+  // shortest clip by default so a new account (20 free credits) can afford its first video
+  const [duration, setDuration] = useState<number>(Math.min(...props.videoDurations));
   const [styleId, setStyleId] = useState("authentic");
   const [count, setCount] = useState<number>(Math.min(MAX_VARIATIONS, Math.max(1, initial.count ?? (initialPreset?.kind === "video" ? 1 : 3))));
   const [step, setStep] = useState<Step>(() => {
@@ -82,8 +83,9 @@ export function CreateStudio(props: {
 
   function choosePreset(id: string) {
     const p = getPreset(id)!;
+    // switching to video starts at a single clip; photos keep the chosen count
+    if (p.kind === "video" && preset?.kind !== "video") setCount(1);
     setPresetId(id);
-    if (p.kind === "video" && count > 5) setCount(5);
   }
 
   async function generate() {
