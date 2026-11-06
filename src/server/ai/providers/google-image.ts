@@ -3,18 +3,22 @@
  * The product photo (and creator identity portrait) are sent as inline image parts — the model
  * edits/composes from the real product rather than from a text description.
  *
- * Env: IMAGE_PROVIDER=google, GEMINI_API_KEY, GEMINI_IMAGE_MODEL (default gemini-2.5-flash-image)
+ * Env: IMAGE_PROVIDER=google, GEMINI_API_KEY,
+ *   GEMINI_IMAGE_MODEL / GEMINI_IMAGE_SIZE       standard photos (default gemini-nano-banana-2.1, 1K)
+ *   GEMINI_IMAGE_MODEL_HQ / GEMINI_IMAGE_SIZE_HQ high-quality photos (default gemini-3-pro-image, 2K)
  * Network: generativelanguage.googleapis.com
+ * Docs (checked 2026-11-06): aistudio.google.com/docs/image-generation?generate-content=true.
+ * generateContent is "legacy" but fully supported; gemini-2.5-flash-image shuts down 2027-03-15.
  */
 import { referenceImages, type ImageGenerationProvider, type ImageRequest, type ProviderResult } from "../types";
 import { httpError, ProviderError, providerFetch } from "../errors";
 import { imageSize } from "../media";
 
 const NAME = "google";
-const BASE = "https://generativelanguage.googleapis.com/v1beta";
+const BASE = "https://generativelanguage.googleapis.com/v1";
 
 interface GeminiResponse {
-  candidates?: { finishReason?: string; content?: { parts?: { text?: string; inlineData?: { mimeType: string; data: string } }[] } }[];
+  candidates?: { finishReason?: string; content?: { parts?: { text?: string; thought?: boolean; inlineData?: { mimeType: string; data: string } }[] } }[];
   promptFeedback?: { blockReason?: string };
 }
 
@@ -26,11 +30,13 @@ export function geminiKey() {
 
 export class GoogleImageProvider implements ImageGenerationProvider {
   readonly name = NAME;
-  // gemini-2.5-flash-image: ~$0.039 per output image (1290 output tokens @ $30/M) + small input cost.
-  readonly estimatedCostUsd = { standard: 0.04, high: 0.04 };
+  // Output price per image (2026-11 pricing page): nano-banana-2.1 1K $0.034, gemini-3-pro-image 2K $0.134.
+  readonly estimatedCostUsd = { standard: 0.035, high: 0.135 };
 
   async generate(req: ImageRequest): Promise<ProviderResult> {
-    const model = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
+    const high = req.quality === "high";
+    const model = high ? process.env.GEMINI_IMAGE_MODEL_HQ || "gemini-3-pro-image" : process.env.GEMINI_IMAGE_MODEL || "gemini-nano-banana-2.1";
+    const outputSize = high ? process.env.GEMINI_IMAGE_SIZE_HQ || "2K" : process.env.GEMINI_IMAGE_SIZE || "1K";
     // Each image is preceded by a short label so the model knows which is the product and
     // which are identity references (and which angle each identity image shows).
     const images = referenceImages(req);
@@ -47,7 +53,7 @@ export class GoogleImageProvider implements ImageGenerationProvider {
           ],
         },
       ],
-      generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: req.aspect } },
+      generationConfig: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: req.aspect, imageSize: outputSize } },
     };
     const res = await providerFetch(NAME, `${BASE}/models/${model}:generateContent`, {
       method: "POST",
@@ -60,7 +66,8 @@ export class GoogleImageProvider implements ImageGenerationProvider {
     const json = JSON.parse(text) as GeminiResponse;
     if (json.promptFeedback?.blockReason) throw new ProviderError(NAME, "content_policy", `Prompt blocked: ${json.promptFeedback.blockReason}`);
     const cand = json.candidates?.[0];
-    const part = cand?.content?.parts?.find((p) => p.inlineData?.data);
+    // Skip draft "thought" images and take the last real one, which is the final output.
+    const part = cand?.content?.parts?.filter((p) => p.inlineData?.data && !p.thought).at(-1);
     if (!part?.inlineData) {
       const reason = cand?.finishReason ?? "unknown";
       const said = cand?.content?.parts?.map((p) => p.text).filter(Boolean).join(" ").slice(0, 300);
